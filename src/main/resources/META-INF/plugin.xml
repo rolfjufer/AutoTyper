@@ -1,22 +1,107 @@
 <idea-plugin>
     <id>ch.autotyper.plugin</id>
     <name>AutoTyper - Live Coding Simulator</name>
-    <version>1.0.0</version>
-    <vendor email="autotyper@example.com">AutoTyper</vendor>
+    <version>2.1.0</version>
+    <vendor email="info@rolfsblog.ch" url="https://rolfsblog.ch">Rolf's Blog</vendor>
 
     <description><![CDATA[
         <h2>AutoTyper - Live Coding Simulator</h2>
-        <p>Simulates realistic typing of pre-written Java classes in the editor.</p>
-        <p>Perfect for live coding demonstrations in lectures and presentations.</p>
+        <p><b>Simulate realistic, structured typing of Java classes in the editor.</b></p>
+        <p>Perfect for live coding demonstrations in lectures and presentations.
+           Instead of typing code line-by-line from top to bottom, AutoTyper types code
+           in the <b>natural development order</b> — just like a real developer would write it.</p>
+
+        <h3>✨ Key Features</h3>
         <ul>
-            <li>Load Java files from a configurable folder</li>
-            <li>Simulate typing with adjustable speed</li>
-            <li>Pause/Resume/Stop controls</li>
-            <li>Natural typing feel with randomized delays</li>
+            <li><b>Structured Typing with Step Markers</b> — Define the typing order using
+                simple <code>// @step N</code> comments in your Java files</li>
+            <li><b>Automatic File Creation</b> — The plugin automatically creates the Java file
+                in the correct package directory and opens it in the editor</li>
+            <li><b>Package-Aware</b> — Detects <code>package</code> declarations and creates
+                the proper directory structure</li>
+            <li><b>Keyboard Shortcut: Alt+N</b> — Press <b>Alt+N</b> anywhere in IntelliJ
+                to advance to the next step. Works even when the editor has focus!</li>
+            <li><b>Natural Development Flow</b> — First the empty class, then fields,
+                then constructor, then methods</li>
+            <li><b>Adjustable Speed</b> — From slow (30 WPM) to turbo (600 WPM)</li>
+            <li><b>Auto-Pause Between Steps</b> — Pauses after each step for explanations</li>
+            <li><b>Pause/Resume/Stop Controls</b> — Full control during typing</li>
+            <li><b>Progress Indicator</b> — Shows current step and overall progress</li>
         </ul>
+
+        <h3>⌨️ Keyboard Shortcuts</h3>
+        <table>
+            <tr><td><b>Alt+N</b></td><td>Next Step (works globally, even when editor has focus)</td></tr>
+        </table>
+        <p><i>Customizable via Settings → Keymap → search "AutoTyper"</i></p>
+
+        <h3>📝 How Step Markers Work</h3>
+        <p>Add <code>// @step N</code> comments to your Java files:</p>
+        <pre>
+// @step 1
+package ch.demo;
+
+// @step 1
+public class Calculator {
+
+// @step 2
+    private double result;
+
+// @step 3
+    public Calculator() {
+        this.result = 0;
+    }
+
+// @step 4
+    public double add(double a, double b) {
+        result = a + b;
+        return result;
+    }
+
+// @step 1
+}
+        </pre>
+
+        <h3>🚀 Quick Start</h3>
+        <ol>
+            <li>Place annotated <code>.java</code> files in <code>~/autotyper-snippets/</code></li>
+            <li>Open the <b>AutoTyper</b> tool window (right sidebar)</li>
+            <li>Select a file, adjust speed, click <b>Start</b></li>
+            <li>The file is auto-created and opened in the editor</li>
+            <li>After each step: press <b>Alt+N</b> or click <b>Next Step</b></li>
+        </ol>
+
+        <h3>💡 Tips for Lecturers</h3>
+        <ul>
+            <li>Use 100-150 WPM for a natural look</li>
+            <li>Enable auto-pause to explain each step</li>
+            <li>Press Alt+N to advance — works without switching focus!</li>
+            <li>Organize snippets in folders per lecture topic</li>
+        </ul>
+
+        <p><br/><i>Created by <a href="https://rolfsblog.ch">Rolf</a> — info@rolfsblog.ch</i></p>
     ]]></description>
 
+    <change-notes><![CDATA[
+        <h3>v2.1.0</h3>
+        <ul>
+            <li>NEW: Automatic file creation with package-aware directory structure</li>
+            <li>NEW: Global keyboard shortcut Alt+N for "Next Step" (works even with editor focus)</li>
+            <li>NEW: Shortcut customizable via Settings → Keymap</li>
+        </ul>
+        <h3>v2.0.0</h3>
+        <ul>
+            <li>Structured typing with step markers (// @step N)</li>
+            <li>Auto-pause between steps</li>
+        </ul>
+        <h3>v1.0.0</h3>
+        <ul>
+            <li>Initial release with sequential typing</li>
+        </ul>
+    ]]></change-notes>
+
     <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
 
     <idea-version since-build="233.0" until-build="262.*"/>
 
@@ -29,5 +114,17 @@
 
         <applicationService
             serviceImplementation="ch.autotyper.repository.CodeSnippetRepository"/>
+
+        <projectService
+            serviceImplementation="ch.autotyper.service.TypingSimulatorService"/>
     </extensions>
+
+    <actions>
+        <action id="AutoTyper.NextStep"
+                class="ch.autotyper.action.NextStepAction"
+                text="AutoTyper: Next Step"
+                description="Advance to the next typing step in AutoTyper">
+            <keyboard-shortcut keymap="$default" first-keystroke="alt N"/>
+        </action>
+    </actions>
 </idea-plugin>

@@ -1,14 +1,14 @@
+// @step 1
 package ch.demo;
 
-/**
- * A generic singly linked list implementation.
- * Demonstrates generics, inner classes, and data structures.
- */
+// @step 1
 public class LinkedList<T> {
 
+// @step 2
     private Node<T> head;
     private int size;
 
+// @step 3
     private static class Node<T> {
         T data;
         Node<T> next;
@@ -19,11 +19,13 @@ public class LinkedList<T> {
         }
     }
 
+// @step 4
     public LinkedList() {
         this.head = null;
         this.size = 0;
     }
 
+// @step 5
     public void addFirst(T element) {
         Node<T> newNode = new Node<>(element);
         newNode.next = head;
@@ -31,6 +33,7 @@ public class LinkedList<T> {
         size++;
     }
 
+// @step 5
     public void addLast(T element) {
         Node<T> newNode = new Node<>(element);
         if (head == null) {
@@ -45,6 +48,7 @@ public class LinkedList<T> {
         size++;
     }
 
+// @step 6
     public T removeFirst() {
         if (head == null) {
             throw new RuntimeException("List is empty!");
@@ -55,14 +59,17 @@ public class LinkedList<T> {
         return data;
     }
 
+// @step 6
     public int size() {
         return size;
     }
 
+// @step 6
     public boolean isEmpty() {
         return size == 0;
     }
 
+// @step 7
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("[");
@@ -78,6 +85,7 @@ public class LinkedList<T> {
         return sb.toString();
     }
 
+// @step 8
     public static void main(String[] args) {
         LinkedList<String> list = new LinkedList<>();
 
@@ -92,4 +100,6 @@ public class LinkedList<T> {
         System.out.println("Removed: " + removed);
         System.out.println(list);
     }
+
+// @step 1
 }

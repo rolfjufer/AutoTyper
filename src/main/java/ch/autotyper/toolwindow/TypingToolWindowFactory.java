@@ -7,9 +7,6 @@ import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentFactory;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * Factory that creates the AutoTyper tool window panel.
- */
 public class TypingToolWindowFactory implements ToolWindowFactory {
 
     @Override

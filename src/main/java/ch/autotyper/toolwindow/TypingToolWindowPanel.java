@@ -1,11 +1,13 @@
 package ch.autotyper.toolwindow;
 
 import ch.autotyper.repository.CodeSnippetRepository;
+import ch.autotyper.service.FileCreationService;
 import ch.autotyper.service.TypingSimulatorService;
 import com.intellij.openapi.fileChooser.FileChooser;
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.ui.components.JBList;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
@@ -15,85 +17,37 @@ import java.util.Hashtable;
 import java.util.List;
 
 /**
- * The main UI panel for the AutoTyper tool window.
- * Contains: snippet list, speed slider, control buttons, status display.
+ * Main UI panel for the AutoTyper tool window.
+ * Supports structured step-by-step typing, auto file creation, and spacebar navigation.
  */
 public class TypingToolWindowPanel {
 
     private final Project project;
     private JPanel mainPanel;
     private DefaultListModel<String> listModel;
-    private JList<String> snippetList;
+    private JBList<String> snippetList;
     private JSlider speedSlider;
     private JLabel statusLabel;
     private JLabel progressLabel;
+    private JLabel stepLabel;
     private JProgressBar progressBar;
     private JButton startButton;
     private JButton pauseButton;
     private JButton stopButton;
+    private JButton nextStepButton;
+    private JCheckBox autoPauseCheckbox;
+    private JCheckBox autoCreateFileCheckbox;
 
     private TypingSimulatorService typingService;
+    private FileCreationService fileCreationService;
 
     public TypingToolWindowPanel(Project project) {
         this.project = project;
-        this.typingService = new TypingSimulatorService(project);
-
-        mainPanel = new JPanel(new BorderLayout(8, 8));
-        mainPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-
-        // === TOP: Folder selection ===
-        JPanel folderPanel = createFolderPanel();
-
-        // === CENTER: Snippet list ===
-        listModel = new DefaultListModel<>();
-        snippetList = new JList<>(listModel);
-        snippetList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        snippetList.setToolTipText("Select a Java class to type");
-
-        JScrollPane listScroll = new JScrollPane(snippetList);
-        listScroll.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(), "📄 Java Classes",
-                TitledBorder.LEFT, TitledBorder.TOP));
-        listScroll.setPreferredSize(new Dimension(250, 200));
-
-        // === SPEED SLIDER ===
-        JPanel speedPanel = createSpeedPanel();
-
-        // === CONTROLS ===
-        JPanel controlPanel = createControlPanel();
-
-        // === STATUS ===
-        JPanel statusPanel = new JPanel(new BorderLayout(4, 4));
-        statusLabel = new JLabel("Ready");
-        progressLabel = new JLabel("");
-        progressBar = new JProgressBar(0, 100);
-        progressBar.setStringPainted(true);
-        progressBar.setVisible(false);
-
-        statusPanel.add(statusLabel, BorderLayout.NORTH);
-        statusPanel.add(progressBar, BorderLayout.CENTER);
-        statusPanel.add(progressLabel, BorderLayout.SOUTH);
-        statusPanel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(), "Status",
-                TitledBorder.LEFT, TitledBorder.TOP));
-
-        // === LAYOUT ===
-        JPanel topSection = new JPanel(new BorderLayout(4, 4));
-        topSection.add(folderPanel, BorderLayout.NORTH);
-        topSection.add(listScroll, BorderLayout.CENTER);
-
-        JPanel bottomSection = new JPanel(new BorderLayout(4, 4));
-        bottomSection.add(speedPanel, BorderLayout.NORTH);
-        bottomSection.add(controlPanel, BorderLayout.CENTER);
-        bottomSection.add(statusPanel, BorderLayout.SOUTH);
-
-        mainPanel.add(topSection, BorderLayout.CENTER);
-        mainPanel.add(bottomSection, BorderLayout.SOUTH);
-
-        // Setup typing status listener
+        this.typingService = project.getService(TypingSimulatorService.class);
+        this.fileCreationService = new FileCreationService(project);
+        buildUI();
         setupStatusListener();
-
-        // Initial load
+        
         refreshSnippetList();
     }
 
@@ -102,8 +56,48 @@ public class TypingToolWindowPanel {
     }
 
     // =========================================================================
-    // UI Creation
+    // UI Construction
     // =========================================================================
+
+    private void buildUI() {
+        mainPanel = new JPanel(new BorderLayout(8, 8));
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        // TOP: Folder selection
+        JPanel folderPanel = createFolderPanel();
+
+        // CENTER: Snippet list
+        listModel = new DefaultListModel<>();
+        snippetList = new JBList<>(listModel);
+        snippetList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        snippetList.setToolTipText("Select a Java class to type (use // @step N markers for structured typing)");
+
+        JScrollPane listScroll = new JScrollPane(snippetList);
+        listScroll.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(), "📄 Java Classes",
+                TitledBorder.LEFT, TitledBorder.TOP));
+
+        // BOTTOM section
+        JPanel bottomSection = new JPanel();
+        bottomSection.setLayout(new BoxLayout(bottomSection, BoxLayout.Y_AXIS));
+        bottomSection.add(createSpeedPanel());
+        bottomSection.add(Box.createVerticalStrut(4));
+        bottomSection.add(createOptionsPanel());
+        bottomSection.add(Box.createVerticalStrut(4));
+        bottomSection.add(createControlPanel());
+        bottomSection.add(Box.createVerticalStrut(4));
+        bottomSection.add(createStatusPanel());
+        bottomSection.add(Box.createVerticalStrut(4));
+        bottomSection.add(createInfoPanel());
+
+        // LAYOUT
+        JPanel topSection = new JPanel(new BorderLayout(4, 4));
+        topSection.add(folderPanel, BorderLayout.NORTH);
+        topSection.add(listScroll, BorderLayout.CENTER);
+
+        mainPanel.add(topSection, BorderLayout.CENTER);
+        mainPanel.add(bottomSection, BorderLayout.SOUTH);
+    }
 
     private JPanel createFolderPanel() {
         JPanel panel = new JPanel(new BorderLayout(4, 0));
@@ -128,7 +122,7 @@ public class TypingToolWindowPanel {
         });
 
         JButton refreshBtn = new JButton("🔄");
-        refreshBtn.setToolTipText("Reload snippets");
+        refreshBtn.setToolTipText("Reload snippets from folder");
         refreshBtn.addActionListener(e -> {
             repo.reload();
             refreshSnippetList();
@@ -152,7 +146,6 @@ public class TypingToolWindowPanel {
                 BorderFactory.createEtchedBorder(), "⚡ Typing Speed",
                 TitledBorder.LEFT, TitledBorder.TOP));
 
-        // Slider: 30 WPM (slow) to 600 WPM (very fast)
         speedSlider = new JSlider(JSlider.HORIZONTAL, 30, 600, 150);
         speedSlider.setMajorTickSpacing(100);
         speedSlider.setMinorTickSpacing(50);
@@ -166,13 +159,10 @@ public class TypingToolWindowPanel {
         labels.put(600, new JLabel("Turbo"));
         speedSlider.setLabelTable(labels);
 
-        speedSlider.addChangeListener(e -> {
-            typingService.setSpeed(speedSlider.getValue());
-        });
-
         JLabel wpmLabel = new JLabel("150 WPM");
         speedSlider.addChangeListener(e -> {
             wpmLabel.setText(speedSlider.getValue() + " WPM");
+            typingService.setSpeed(speedSlider.getValue());
         });
 
         panel.add(speedSlider, BorderLayout.CENTER);
@@ -181,30 +171,93 @@ public class TypingToolWindowPanel {
         return panel;
     }
 
+    private JPanel createOptionsPanel() {
+        JPanel panel = new JPanel(new GridLayout(2, 1, 4, 2));
+        panel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(), "⚙️ Options",
+                TitledBorder.LEFT, TitledBorder.TOP));
+
+        autoPauseCheckbox = new JCheckBox("Auto-pause between steps", true);
+        autoPauseCheckbox.setToolTipText("Pause automatically after each @step block completes");
+        autoPauseCheckbox.addActionListener(e ->
+                typingService.setAutoPauseBetweenSteps(autoPauseCheckbox.isSelected()));
+
+        autoCreateFileCheckbox = new JCheckBox("Auto-create file in project", true);
+        autoCreateFileCheckbox.setToolTipText(
+                "Automatically create the Java file in the correct package directory and open it in the editor");
+
+        panel.add(autoPauseCheckbox);
+        panel.add(autoCreateFileCheckbox);
+
+        return panel;
+    }
+
     private JPanel createControlPanel() {
-        JPanel panel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 4));
 
         startButton = new JButton("▶ Start");
         pauseButton = new JButton("⏸ Pause");
+        nextStepButton = new JButton("⏭ Next Step");
         stopButton = new JButton("⏹ Stop");
 
         startButton.setToolTipText("Start typing the selected snippet");
         pauseButton.setToolTipText("Pause/Resume typing");
-        stopButton.setToolTipText("Stop typing");
+        nextStepButton.setToolTipText("Continue to next step (or press Spacebar)");
+        stopButton.setToolTipText("Stop typing completely");
 
         pauseButton.setEnabled(false);
+        nextStepButton.setEnabled(false);
         stopButton.setEnabled(false);
 
         startButton.addActionListener(e -> startTyping());
         pauseButton.addActionListener(e -> togglePause());
+        nextStepButton.addActionListener(e -> nextStep());
         stopButton.addActionListener(e -> stopTyping());
 
         panel.add(startButton);
         panel.add(pauseButton);
+        panel.add(nextStepButton);
         panel.add(stopButton);
 
         return panel;
     }
+
+    private JPanel createStatusPanel() {
+        JPanel panel = new JPanel(new BorderLayout(4, 4));
+        panel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(), "📊 Status",
+                TitledBorder.LEFT, TitledBorder.TOP));
+
+        statusLabel = new JLabel("Ready — select a snippet and click Start");
+        stepLabel = new JLabel("");
+        progressLabel = new JLabel("");
+        progressBar = new JProgressBar(0, 100);
+        progressBar.setStringPainted(true);
+        progressBar.setVisible(false);
+
+        JPanel labelsPanel = new JPanel(new GridLayout(3, 1, 0, 2));
+        labelsPanel.add(statusLabel);
+        labelsPanel.add(stepLabel);
+        labelsPanel.add(progressLabel);
+
+        panel.add(labelsPanel, BorderLayout.NORTH);
+        panel.add(progressBar, BorderLayout.SOUTH);
+
+        return panel;
+    }
+
+    private JPanel createInfoPanel() {
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        JLabel infoLabel = new JLabel("<html><small>💡 Press <b>Alt+N</b> to advance to next step</small></html>");
+        infoLabel.setForeground(Color.GRAY);
+        panel.add(infoLabel);
+        return panel;
+    }
+
+    // =========================================================================
+    // Keyboard Shortcuts
+    // =========================================================================
+
 
     // =========================================================================
     // Actions
@@ -223,21 +276,43 @@ public class TypingToolWindowPanel {
             return;
         }
 
-        // Apply current speed setting
-        typingService.setSpeed(speedSlider.getValue());
+        // Auto-create file if option is enabled
+        if (autoCreateFileCheckbox.isSelected()) {
+            statusLabel.setText("📁 Creating file...");
+            boolean created = fileCreationService.createAndOpenFile(selected, content);
+            if (!created) {
+                statusLabel.setText("⚠️ Failed to create file! Check project structure.");
+                return;
+            }
 
-        // Update UI state
+            // Small delay to let the editor open before typing starts
+            Timer delayTimer = new Timer(500, e -> {
+                ((Timer) e.getSource()).stop();
+                beginTyping(content);
+            });
+            delayTimer.setRepeats(false);
+            delayTimer.start();
+        } else {
+            beginTyping(content);
+        }
+    }
+
+    private void beginTyping(String content) {
+        // Apply settings
+        typingService.setSpeed(speedSlider.getValue());
+        typingService.setAutoPauseBetweenSteps(autoPauseCheckbox.isSelected());
+
+        // UI state
         startButton.setEnabled(false);
         pauseButton.setEnabled(true);
         stopButton.setEnabled(true);
+        nextStepButton.setEnabled(false);
         snippetList.setEnabled(false);
-
-        // Show progress bar
+        autoCreateFileCheckbox.setEnabled(false);
         progressBar.setVisible(true);
         progressBar.setValue(0);
-        progressBar.setMaximum(content.length());
 
-        // Start typing
+        // Start
         typingService.startTyping(content);
     }
 
@@ -250,6 +325,12 @@ public class TypingToolWindowPanel {
         }
     }
 
+    private void nextStep() {
+        nextStepButton.setEnabled(false);
+        pauseButton.setEnabled(true);
+        typingService.nextStep();
+    }
+
     private void stopTyping() {
         typingService.stop();
         resetControls();
@@ -258,10 +339,52 @@ public class TypingToolWindowPanel {
     private void resetControls() {
         startButton.setEnabled(true);
         pauseButton.setEnabled(false);
-        stopButton.setEnabled(false);
         pauseButton.setText("⏸ Pause");
+        nextStepButton.setEnabled(false);
+        stopButton.setEnabled(false);
         snippetList.setEnabled(true);
+        autoCreateFileCheckbox.setEnabled(true);
         progressBar.setVisible(false);
+        stepLabel.setText("");
+        progressLabel.setText("");
+    }
+
+    // =========================================================================
+    // Status Listener
+    // =========================================================================
+
+    private void setupStatusListener() {
+        typingService.setStatusListener(new TypingSimulatorService.TypingStatusListener() {
+            @Override
+            public void onStatusChanged(String status) {
+                SwingUtilities.invokeLater(() -> statusLabel.setText(status));
+            }
+
+            @Override
+            public void onProgressChanged(int currentStep, int totalSteps, int charsCurrent, int charsTotal) {
+                SwingUtilities.invokeLater(() -> {
+                    stepLabel.setText("Step " + currentStep + " of " + totalSteps);
+                    int percent = (int) ((charsCurrent / (double) charsTotal) * 100);
+                    progressBar.setValue(percent);
+                    progressLabel.setText(charsCurrent + " / " + charsTotal + " chars (" + percent + "%)");
+                });
+            }
+
+            @Override
+            public void onStepPaused(int completedStep, int nextStep, int totalSteps) {
+                SwingUtilities.invokeLater(() -> {
+                    nextStepButton.setEnabled(true);
+                    pauseButton.setEnabled(false);
+                    stepLabel.setText("Step " + completedStep + "/" + totalSteps +
+                            " done → press Alt+N or click Next Step");
+                });
+            }
+
+            @Override
+            public void onTypingFinished() {
+                SwingUtilities.invokeLater(() -> resetControls());
+            }
+        });
     }
 
     // =========================================================================
@@ -278,29 +401,6 @@ public class TypingToolWindowPanel {
             snippetList.setSelectedIndex(0);
         }
         statusLabel.setText(names.size() + " snippet(s) loaded");
-    }
-
-    private void setupStatusListener() {
-        typingService.setStatusListener(new TypingSimulatorService.TypingStatusListener() {
-            @Override
-            public void onStatusChanged(String status) {
-                SwingUtilities.invokeLater(() -> statusLabel.setText(status));
-            }
-
-            @Override
-            public void onProgressChanged(int current, int total) {
-                SwingUtilities.invokeLater(() -> {
-                    progressBar.setValue(current);
-                    int percent = (int) ((current / (double) total) * 100);
-                    progressLabel.setText(current + " / " + total + " chars (" + percent + "%)");
-                });
-            }
-
-            @Override
-            public void onTypingFinished() {
-                SwingUtilities.invokeLater(() -> resetControls());
-            }
-        });
     }
 
     private String shortenPath(String path) {

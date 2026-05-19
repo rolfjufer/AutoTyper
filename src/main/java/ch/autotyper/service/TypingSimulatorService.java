@@ -1,22 +1,30 @@
 package ch.autotyper.service;
 
+import ch.autotyper.parser.StepParser;
+import ch.autotyper.parser.StepParser.StepBlock;
+import ch.autotyper.parser.StepParser.TypingPlan;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.WriteCommandAction;
+import com.intellij.openapi.components.Service;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.diagnostic.Logger;
 
-import javax.swing.*;
+import javax.swing.Timer;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Simulates typing text character by character into the active editor.
- * Supports adjustable speed, pause/resume, and stop functionality.
+ * Project-level service that simulates typing text into the active editor,
+ * supporting structured step-by-step typing via @step markers.
  */
-public class TypingSimulatorService {
+@Service(Service.Level.PROJECT)
+public final class TypingSimulatorService {
 
     private static final Logger LOG = Logger.getInstance(TypingSimulatorService.class);
     private static final Random RANDOM = new Random();
@@ -24,22 +32,30 @@ public class TypingSimulatorService {
     private final Project project;
 
     // Typing state
-    private Timer typingTimer;
+    private javax.swing.Timer typingTimer;
     private final AtomicBoolean isPaused = new AtomicBoolean(false);
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
-    private final AtomicInteger currentIndex = new AtomicInteger(0);
+    private final AtomicBoolean isWaitingForNextStep = new AtomicBoolean(false);
+    private final AtomicInteger charIndex = new AtomicInteger(0);
 
-    // Speed settings (delay in ms between characters)
-    private int baseDelayMs = 50;       // Base delay between characters
-    private int variationMs = 30;       // Random variation (+/-)
-    private int newlineDelayMs = 200;   // Extra delay after newline
+    // Step state
+    private TypingPlan currentPlan;
+    private int currentBlockIndex = 0;
+    private List<StepBlock> insertedBlocks = new ArrayList<>();
+    private boolean autoPauseBetweenSteps = true;
 
-    // Listener for status updates
+    // Speed settings
+    private int baseDelayMs = 50;
+    private int variationMs = 30;
+    private int newlineDelayMs = 200;
+
+    // Listener
     private TypingStatusListener statusListener;
 
     public interface TypingStatusListener {
         void onStatusChanged(String status);
-        void onProgressChanged(int current, int total);
+        void onProgressChanged(int currentStep, int totalSteps, int charsCurrent, int charsTotal);
+        void onStepPaused(int completedStep, int nextStep, int totalSteps);
         void onTypingFinished();
     }
 
@@ -51,10 +67,18 @@ public class TypingSimulatorService {
         this.statusListener = listener;
     }
 
+    public void setAutoPauseBetweenSteps(boolean autoPause) {
+        this.autoPauseBetweenSteps = autoPause;
+    }
+
+    public boolean isAutoPauseBetweenSteps() {
+        return autoPauseBetweenSteps;
+    }
+
     /**
-     * Starts typing the given text into the active editor.
+     * Starts structured typing of the given source code.
      */
-    public void startTyping(String text) {
+    public void startTyping(String sourceCode) {
         if (isRunning.get()) {
             stop();
         }
@@ -65,82 +89,69 @@ public class TypingSimulatorService {
             return;
         }
 
+        // Parse the source into a typing plan
+        currentPlan = StepParser.parse(sourceCode);
+        currentBlockIndex = 0;
+        insertedBlocks.clear();
+        charIndex.set(0);
+
         isRunning.set(true);
         isPaused.set(false);
-        currentIndex.set(0);
+        isWaitingForNextStep.set(false);
 
-        notifyStatus("▶️ Typing...");
+        if (currentPlan.hasStepMarkers()) {
+            notifyStatus("▶️ Typing step 1/" + currentPlan.getTotalSteps() + "...");
+        } else {
+            notifyStatus("▶️ Typing (no step markers found, sequential mode)...");
+        }
 
-        typingTimer = new Timer(getNextDelay('\0'), null);
-        typingTimer.setRepeats(false);
-
-        typingTimer.addActionListener(e -> {
-            if (!isRunning.get()) return;
-            if (isPaused.get()) {
-                scheduleNext('\0');
-                return;
-            }
-
-            int idx = currentIndex.getAndIncrement();
-            if (idx >= text.length()) {
-                stop();
-                notifyStatus("✅ Typing complete!");
-                if (statusListener != null) {
-                    statusListener.onTypingFinished();
-                }
-                return;
-            }
-
-            char c = text.charAt(idx);
-            typeCharacter(editor, c);
-
-            if (statusListener != null) {
-                statusListener.onProgressChanged(idx + 1, text.length());
-            }
-
-            scheduleNext(c);
-        });
-
-        typingTimer.start();
+        startTypingCurrentBlock();
     }
 
     /**
-     * Pauses the typing simulation.
+     * Advances to the next step (called by button or keyboard shortcut Alt+N).
      */
+    public void nextStep() {
+        if (!isWaitingForNextStep.get()) return;
+
+        isWaitingForNextStep.set(false);
+        currentBlockIndex++;
+        charIndex.set(0);
+
+        if (currentBlockIndex >= currentPlan.getBlocks().size()) {
+            finish();
+            return;
+        }
+
+        int stepNum = currentPlan.getBlocks().get(currentBlockIndex).getStepNumber();
+        notifyStatus("▶️ Typing step " + stepNum + "/" + currentPlan.getTotalSteps() + "...");
+        startTypingCurrentBlock();
+    }
+
     public void pause() {
-        if (isRunning.get() && !isPaused.get()) {
+        if (isRunning.get() && !isPaused.get() && !isWaitingForNextStep.get()) {
             isPaused.set(true);
             notifyStatus("⏸️ Paused");
         }
     }
 
-    /**
-     * Resumes the typing simulation.
-     */
     public void resume() {
         if (isRunning.get() && isPaused.get()) {
             isPaused.set(false);
-            notifyStatus("▶️ Typing...");
+            int stepNum = currentPlan.getBlocks().get(currentBlockIndex).getStepNumber();
+            notifyStatus("▶️ Typing step " + stepNum + "/" + currentPlan.getTotalSteps() + "...");
         }
     }
 
-    /**
-     * Toggles between pause and resume.
-     */
     public void togglePause() {
-        if (isPaused.get()) {
-            resume();
-        } else {
-            pause();
-        }
+        if (isPaused.get()) resume();
+        else pause();
     }
 
-    /**
-     * Stops the typing simulation completely.
-     */
     public void stop() {
         isRunning.set(false);
         isPaused.set(false);
+        isWaitingForNextStep.set(false);
         if (typingTimer != null) {
             typingTimer.stop();
             typingTimer = null;
@@ -148,77 +159,141 @@ public class TypingSimulatorService {
         notifyStatus("⏹️ Stopped");
     }
 
-    /**
-     * Sets the typing speed.
-     * @param wordsPerMinute approximate words per minute (30-600)
-     */
     public void setSpeed(int wordsPerMinute) {
-        // Average word = 5 characters, so chars/min = wpm * 5
-        // delay = 60000 / (wpm * 5) ms per character
         int charsPerMinute = wordsPerMinute * 5;
         this.baseDelayMs = Math.max(5, 60000 / charsPerMinute);
         this.variationMs = baseDelayMs / 2;
         this.newlineDelayMs = baseDelayMs * 4;
     }
 
-    /**
-     * Returns the base delay in ms (for slider display purposes).
-     */
-    public int getBaseDelayMs() {
-        return baseDelayMs;
-    }
-
-    public boolean isRunning() {
-        return isRunning.get();
-    }
-
-    public boolean isPaused() {
-        return isPaused.get();
-    }
+    public boolean isRunning() { return isRunning.get(); }
+    public boolean isPaused() { return isPaused.get(); }
+    public boolean isWaitingForNextStep() { return isWaitingForNextStep.get(); }
 
     // =========================================================================
-    // Private helpers
+    // Private: Typing Engine
     // =========================================================================
 
-    private void typeCharacter(Editor editor, char c) {
+    private void startTypingCurrentBlock() {
+        if (currentBlockIndex >= currentPlan.getBlocks().size()) {
+            finish();
+            return;
+        }
+
+        StepBlock block = currentPlan.getBlocks().get(currentBlockIndex);
+        String content = block.getContent();
+
+        Editor editor = getActiveEditor();
+        if (editor == null) {
+            notifyStatus("⚠️ Editor lost!");
+            stop();
+            return;
+        }
+
+        String editorContent = editor.getDocument().getText();
+        int insertionOffset = StepParser.calculateInsertionOffset(editorContent, block, insertedBlocks);
+
+        ApplicationManager.getApplication().invokeLater(() -> {
+            WriteCommandAction.runWriteCommandAction(project, () -> {
+                editor.getCaretModel().moveToOffset(insertionOffset);
+                editor.getScrollingModel().scrollToCaret(ScrollType.CENTER);
+            });
+        });
+
+        typingTimer = new javax.swing.Timer(getNextDelay('\0'), null);
+        typingTimer.setRepeats(false);
+        typingTimer.addActionListener(e -> onTimerTick(block, content, insertionOffset));
+        typingTimer.start();
+    }
+
+    private void onTimerTick(StepBlock block, String content, int baseOffset) {
+        if (!isRunning.get()) return;
+
+        if (isPaused.get()) {
+            scheduleNext('\0');
+            return;
+        }
+
+        int idx = charIndex.getAndIncrement();
+        if (idx >= content.length()) {
+            insertedBlocks.add(block);
+            onBlockComplete(block);
+            return;
+        }
+
+        char c = content.charAt(idx);
+        typeCharacterAtOffset(baseOffset + idx, c);
+
+        if (statusListener != null) {
+            int stepNum = block.getStepNumber();
+            int totalChars = content.length();
+            statusListener.onProgressChanged(stepNum, currentPlan.getTotalSteps(), idx + 1, totalChars);
+        }
+
+        scheduleNext(c);
+    }
+
+    private void onBlockComplete(StepBlock completedBlock) {
+        int nextBlockIndex = currentBlockIndex + 1;
+
+        if (nextBlockIndex >= currentPlan.getBlocks().size()) {
+            finish();
+            return;
+        }
+
+        StepBlock nextBlock = currentPlan.getBlocks().get(nextBlockIndex);
+        boolean stepChange = nextBlock.getStepNumber() != completedBlock.getStepNumber();
+
+        if (stepChange && autoPauseBetweenSteps && currentPlan.hasStepMarkers()) {
+            isWaitingForNextStep.set(true);
+            notifyStatus("⏸️ Step " + completedBlock.getStepNumber() + " complete — press Alt+N or click 'Next Step'");
+            if (statusListener != null) {
+                statusListener.onStepPaused(
+                        completedBlock.getStepNumber(),
+                        nextBlock.getStepNumber(),
+                        currentPlan.getTotalSteps()
+                );
+            }
+        } else {
+            currentBlockIndex++;
+            charIndex.set(0);
+            startTypingCurrentBlock();
+        }
+    }
+
+    private void finish() {
+        isRunning.set(false);
+        notifyStatus("✅ All steps complete!");
+        if (statusListener != null) {
+            statusListener.onTypingFinished();
+        }
+    }
+
+    private void typeCharacterAtOffset(int offset, char c) {
         String charStr = String.valueOf(c);
         ApplicationManager.getApplication().invokeLater(() -> {
             WriteCommandAction.runWriteCommandAction(project, () -> {
-                int offset = editor.getCaretModel().getOffset();
-                editor.getDocument().insertString(offset, charStr);
-                editor.getCaretModel().moveToOffset(offset + 1);
-
-                // Auto-scroll to caret position
-                editor.getScrollingModel().scrollToCaret(
-                    com.intellij.openapi.editor.ScrollType.MAKE_VISIBLE
-                );
+                Editor editor = getActiveEditor();
+                if (editor == null) return;
+                int safeOffset = Math.min(offset, editor.getDocument().getTextLength());
+                editor.getDocument().insertString(safeOffset, charStr);
+                editor.getCaretModel().moveToOffset(safeOffset + 1);
+                editor.getScrollingModel().scrollToCaret(ScrollType.MAKE_VISIBLE);
             });
         });
     }
 
     private void scheduleNext(char previousChar) {
         if (typingTimer == null || !isRunning.get()) return;
-
-        int delay = getNextDelay(previousChar);
-        typingTimer.setInitialDelay(delay);
+        typingTimer.setInitialDelay(getNextDelay(previousChar));
         typingTimer.restart();
     }
 
     private int getNextDelay(char previousChar) {
-        if (isPaused.get()) return 100; // Poll interval while paused
-
+        if (isPaused.get()) return 100;
         int delay = baseDelayMs + RANDOM.nextInt(Math.max(1, variationMs * 2)) - variationMs;
-
-        // Add extra delay after newlines (simulates thinking)
-        if (previousChar == '\n') {
-            delay += newlineDelayMs;
-        }
-
-        // Occasional longer pause (simulates natural typing rhythm)
-        if (RANDOM.nextInt(20) == 0) {
-            delay += baseDelayMs * 3;
-        }
-
+        if (previousChar == '\n') delay += newlineDelayMs;
+        if (RANDOM.nextInt(20) == 0) delay += baseDelayMs * 3;
         return Math.max(5, delay);
     }
 
