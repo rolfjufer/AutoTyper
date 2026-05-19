@@ -1,0 +1,33 @@
+<idea-plugin>
+    <id>ch.autotyper.plugin</id>
+    <name>AutoTyper - Live Coding Simulator</name>
+    <version>1.0.0</version>
+    <vendor email="autotyper@example.com">AutoTyper</vendor>
+
+    <description><![CDATA[
+        <h2>AutoTyper - Live Coding Simulator</h2>
+        <p>Simulates realistic typing of pre-written Java classes in the editor.</p>
+        <p>Perfect for live coding demonstrations in lectures and presentations.</p>
+        <ul>
+            <li>Load Java files from a configurable folder</li>
+            <li>Simulate typing with adjustable speed</li>
+            <li>Pause/Resume/Stop controls</li>
+            <li>Natural typing feel with randomized delays</li>
+        </ul>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <idea-version since-build="233.0" until-build="262.*"/>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="AutoTyper"
+                    secondary="true"
+                    anchor="right"
+                    factoryClass="ch.autotyper.toolwindow.TypingToolWindowFactory"
+                    icon="AllIcons.Actions.Play_forward"/>
+
+        <applicationService
+            serviceImplementation="ch.autotyper.repository.CodeSnippetRepository"/>
+    </extensions>
+</idea-plugin>
