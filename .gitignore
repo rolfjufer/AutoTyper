@@ -1,5 +1,6 @@
 .gradle/
 .idea/
+.intellijPlatform/
 out/
 
 target/
@@ -41,3 +42,4 @@ build/
 
 ### Mac OS ###
 .DS_Store
+.intellijPlatform/

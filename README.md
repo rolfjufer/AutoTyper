@@ -37,15 +37,15 @@ Instead of typing code line-by-line from top to bottom, AutoTyper types code in 
 
 ### From ZIP (manual)
 
-1. Download the latest release ZIP from [Releases](https://github.com/YOUR-USERNAME/autotyper-intellij-plugin/releases)
+1. Download the latest release ZIP from [Releases](https://github.com/rolfjufer/autotyper-plugin/releases)
 2. In IntelliJ: `Settings` → `Plugins` → ⚙️ → `Install Plugin from Disk...`
 3. Select the ZIP → Restart IntelliJ
 
 ### Build from Source
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/autotyper-intellij-plugin.git
-cd autotyper-intellij-plugin
+git clone https://github.com/rolfjufer/autotyper-plugin.git
+cd autotyper-plugin
 gradle buildPlugin
 # Output: build/distributions/autotyper-plugin-*.zip
 ```
